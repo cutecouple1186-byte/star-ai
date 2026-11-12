@@ -42,7 +42,7 @@ import java.util.Locale
 class MainActivity : Activity() {
 
     companion object {
-        const val DEFAULT_URL = "https://STAR-URL-YAHAN.vercel.app"
+        const val DEFAULT_URL = "https://star-ai-virid.vercel.app"
         const val EXTRA_AUTOSTART = "autostart"
         const val EXTRA_VISION = "vision"
 
