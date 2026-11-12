@@ -3,20 +3,16 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-dependencies {
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-}
-
 android {
-    namespace = "com.noor.assistant"
+    namespace = "com.star.assistant"
     compileSdk = 34
 
     defaultConfig {
         applicationId = "com.star.assistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "3.0"
     }
 
     buildTypes {

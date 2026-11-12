@@ -1,12 +1,13 @@
 # STAR AI
 
-Jarvis jaisa awaaz wala assistant aur YouTube channels ka CEO. Noor se alag dimaag (alag memory).
+Jarvis jaisi awaaz wala assistant aur YouTube channels ka CEO.
 
 ## Kaam
-- Wake word: "Hello Star". Aapko "Sir" bulata hai.
-- Channel links yaad rakhta hai, har channel alag.
-- Upload, delete, publish se pehle aapko dikhata hai aur "Sir, upload kar doon?" poochta hai. Aapki "haan" ke baghair kuch nahi.
-- Har hafte ki yaad-dasht se behtar hota jata hai.
+- Orb dabayein aur bolein, ya type karein. Star aapko "Sir" bulata hai.
+- Channels alag alag yaad rakhta hai (Channels screen).
+- Upload, delete, publish se pehle poochta hai: "Sir, upload kar doon?" Aapki "haan" ke baghair kuch nahi.
+- Thumbnail banata hai, titles/description likhta hai, trend aur news dekhta hai.
+- Hafte ki yaad-dasht se behtar salah deta hai.
 
 ## Chalane ka tareeqa
 ```bash
@@ -17,13 +18,16 @@ LLM_API_KEY=your_key APP_TOKEN=your_password npm start
 ## Environment variables
 | Naam | Kaam |
 |---|---|
-| `LLM_API_KEY` | Gemini/LLM API key (zaroori) |
-| `APP_TOKEN` | Password (zaroori rakhein) |
+| `LLM_API_KEY` | Gemini API key (zaroori) |
+| `LLM_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| `LLM_MODEL` | `gemini-flash-latest` |
+| `APP_TOKEN` | Password (zaroori) |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis (free), Star ki yaadein |
 | `TTS_VOICE` | Awaaz, default `Orus` |
 
 ## Android app
-GitHub Actions khud `Star.apk` banata hai. `MainActivity.kt` mein `DEFAULT_URL` apne Vercel URL se badlein.
+`android/` mein chhoti native app hai: Star ka page kholti hai aur mic se sunti hai. GitHub Actions khud `Star.apk` banata hai (Releases mein).
 
-## Hadood
-YouTube channel ka asli control (upload, analytics) ke liye Google OAuth jodna baqi hai.
+## Abhi baqi
+- "Hello Star" wake word (background mein sunna)
+- YouTube ka asli control (Google login: analytics, upload)
