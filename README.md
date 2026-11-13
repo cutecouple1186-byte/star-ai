@@ -23,7 +23,9 @@ LLM_API_KEY=your_key APP_TOKEN=your_password npm start
 | `LLM_MODEL` | `gemini-flash-latest` |
 | `APP_TOKEN` | Password (zaroori) |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis (free), Star ki yaadein |
-| `TTS_VOICE` | Awaaz, default `Orus` |
+| `TTS_VOICE` | JARVIS awaaz, default `Orus` |
+| `TTS_VOICE_NATURAL` | Natural awaaz, default `Charon` |
+| `YOUTUBE_API_KEY` | Optional. Channel ke subscribers aur zyada tafseel ke liye (YouTube Data API v3). Na ho to public RSS se videos aur views |
 
 ## Android app
 `android/` mein chhoti native app hai: Star ka page kholti hai aur mic se sunti hai. GitHub Actions khud `Star.apk` banata hai (Releases mein).
