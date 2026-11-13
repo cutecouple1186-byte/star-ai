@@ -17,17 +17,22 @@ app.use(["/chat", "/tts", "/image"], (req, res, next) => {
   next();
 });
 
-const { LLM_API_KEY, APP_TOKEN, TAVILY_API_KEY } = process.env;
-const BASE = (process.env.LLM_BASE_URL || "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\/$/, "");
-const MODEL = process.env.LLM_MODEL || "gemini-flash-latest";
+// Vercel mein paste karte waqt space, quotes ya "NAAM=" saath aa jaye to saaf kar do
+const clean = (v) => String(v || "").trim().replace(/^[A-Z][A-Z0-9_]*=/, "").replace(/^["']+|["']+$/g, "").trim();
+const LLM_API_KEY = clean(process.env.LLM_API_KEY);
+const APP_TOKEN = clean(process.env.APP_TOKEN);
+const TAVILY_API_KEY = clean(process.env.TAVILY_API_KEY);
+const safeErr = (e) => { let t = String((e && e.message) || e || ""); if (LLM_API_KEY) t = t.split(LLM_API_KEY).join("***"); return t.slice(0, 280); };
+const BASE = (clean(process.env.LLM_BASE_URL) || "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\/$/, "");
+const MODEL = clean(process.env.LLM_MODEL) || "gemini-flash-latest";
 const FALLBACKS = (process.env.LLM_FALLBACK_MODELS || "gemini-flash-lite-latest,gemini-2.5-flash")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 const authed = (req) => !APP_TOKEN || req.get("x-app-token") === APP_TOKEN;
 
 // ---------- Star ki yaadein (Upstash Redis, free) ----------
-const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+const KV_URL = clean(process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL);
+const KV_TOKEN = clean(process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN);
 async function kv(cmd) {
   if (!KV_URL || !KV_TOKEN) return null;
   try {
@@ -88,7 +93,7 @@ async function memoryContext() {
 }
 
 // ---------- Star ka dimaag ----------
-const SYSTEM = `You are STAR, a calm, sharp, MALE personal AI in the style of Jarvis, and the CEO-level manager of Sir's YouTube channels. Always call the user "Sir". Use masculine grammar for yourself ("kar raha hoon"). You speak aloud, so keep every reply to 1-3 short sentences, no markdown, no emojis, no filler, no small talk unless Sir starts it. Reply in the same language and script Sir used (Roman Urdu, Urdu script, Hindi or English).
+const SYSTEM = `You are TONY STARK, the name Sir gave you (he may also say Tony or Star): a calm, sharp, MALE personal AI in the style of Jarvis, and the CEO-level manager of Sir's YouTube channels. You are Sir's own assistant, not a movie character. Always call the user "Sir". Use masculine grammar for yourself ("kar raha hoon"). You speak aloud, so keep every reply to 1-3 short sentences, no markdown, no emojis, no filler, no small talk unless Sir starts it. Reply in the same language and script Sir used (Roman Urdu, Urdu script, Hindi or English).
 
 Return ONLY a JSON object: {"reply": string, "intent": string, "slots": object}
 Allowed intents:
@@ -99,6 +104,7 @@ Allowed intents:
 - "weather": {"city": string}
 - "copy": {"text": string}  (put a title, description or hashtags you wrote on Sir's clipboard)
 - "image": {"prompt": string}  (Sir asks for a thumbnail or picture; detailed English prompt; reply = one short line)
+- "device": {"action": "open_app"|"open_settings"|"volume"|"flashlight", "target": string}  (Sir asks to do something on his phone. open_app: target = the app name exactly as in his installed-apps list; open_settings: target = wifi|internet|bluetooth|display|sound|battery|apps|location|accessibility|airplane|storage|security|settings; volume: up|down|max|mute; flashlight: on|off. In "reply" say exactly what you will do and end with a question like "Sir, WhatsApp kholun?"; the app shows Yes/No buttons and acts only after he says yes)
 - "youtube": {"channel": string}  (Sir asks to check a channel's performance or recent videos. "channel" = "mine" for his own channel, or a saved channel's name, or a link or @handle. You get real data back; never guess numbers)
 
 YouTube CEO rules:
@@ -110,26 +116,41 @@ YouTube CEO rules:
 - Once a week write one short note with intent "remember": what worked, what did not, the next plan. Use older notes to give better advice.
 - Be honest and gentle: if Sir is about to do something unwise, say it in one sentence and give one practical alternative.
 Pictures and video: Sir may send photos, thumbnails, screenshots, or frames sampled from a video (you cannot hear a video's audio). Describe what you actually see in one or two sentences, then give concrete feedback (hook, composition, text, colors, what to change). If he says an image belongs to his channel, use it as context. Never identify real people from their faces.
+Knowledge: you are a general assistant too. Answer any question. For anything that can change (prices, gold or dollar rate, crypto, news, scores, weather, who holds a post now, app or tool features and pricing, what is trending, which niches earn money) ALWAYS use intent "search" (or "trending") first; never guess a number or a date from memory.
+Phone: Sir's installed apps are listed in the device context. You can open any installed app, open a Settings page, change the volume and switch the flashlight, always with his yes. You CANNOT tap, scroll, type or follow accounts inside other apps, and Android does not let apps silently switch Wi-Fi, Bluetooth or mobile data (you open the panel and he flips it); say so plainly. Never ask for, store or type passwords or OTP codes: tell Sir to use his phone's own autofill or fingerprint, and offer to open the app.
 Never say an action is done unless the app confirmed it. If you do not know something, say "Sir, ye mujhe pata nahi" or use "search".`;
 
 function parseJson(text) {
-  const t = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  return JSON.parse(t);
+  const raw = String(text || "").trim();
+  if (!raw || /^(null|undefined|\{\s*\})$/i.test(raw)) throw new Error("model ne khali jawab diya");
+  const t = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const ok = (o) => o && typeof o === "object" && !Array.isArray(o);
+  try { const o = JSON.parse(t); if (ok(o)) return o; } catch (e) {}
+  const m = t.match(/\{[\s\S]*\}/);
+  if (m) { try { const o = JSON.parse(m[0]); if (ok(o)) return o; } catch (e) {} }
+  return { reply: raw.slice(0, 600), intent: "none", slots: {} };
 }
 async function llmOne(m, messages) {
-  const r = await fetch(`${BASE}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${LLM_API_KEY}` },
-    body: JSON.stringify({ model: m, messages, temperature: 0.6, response_format: { type: "json_object" } }),
-    signal: AbortSignal.timeout(12000),
-  });
+  const call = async (json) => {
+    const body = { model: m, messages, temperature: 0.6 };
+    if (json) body.response_format = { type: "json_object" };
+    return fetch(`${BASE}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${LLM_API_KEY}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(25000),
+    });
+  };
+  let r = await call(true);
+  if (r.status === 400) r = await call(false); // kuch models json_object nahi maante
   if (!r.ok) {
     const err = new Error(`LLM error ${r.status} (model ${m}): ${(await r.text()).slice(0, 300)}`);
     err.status = r.status;
     throw err;
   }
   const j = await r.json();
-  return parseJson(j.choices[0].message.content);
+  const c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+  return parseJson(c);
 }
 // Pehla model; 2.5 second mein na aaye to agla bhi shuru, jo pehle sahi de wahi.
 async function llm(messages) {
@@ -199,7 +220,35 @@ async function googleTrends(geo = "PK", n = 8) {
     }).join("\n");
   } catch (e) { return ""; }
 }
+// Asli live Google search (Gemini grounding): rate, price, news, sab kuch taaza
+async function groundedSearch(query) {
+  const models = [clean(process.env.SEARCH_MODEL) || "gemini-2.5-flash", MODEL];
+  for (const m of models.filter((x, i, arr) => x && arr.indexOf(x) === i)) {
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": LLM_API_KEY },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: `${query}\n\nAnswer with the latest facts and exact numbers, say the date or time of the data, and keep it under 7 lines.` }] }],
+          tools: [{ google_search: {} }],
+        }),
+        signal: AbortSignal.timeout(18000),
+      });
+      if (!r.ok) { console.error(`search ${m} failed ${r.status}:`, (await r.text()).slice(0, 200)); continue; }
+      const j = await r.json();
+      const cand = j.candidates && j.candidates[0];
+      const text = ((cand && cand.content && cand.content.parts) || []).map((p) => p.text || "").join("").trim();
+      const src = ((cand && cand.groundingMetadata && cand.groundingMetadata.groundingChunks) || []).map((c) => c.web && c.web.title).filter(Boolean).slice(0, 3);
+      if (text) return `Live Google Search result (fetched ${new Date().toISOString().slice(0, 16)}Z):\n${text}\nSources: ${src.join(", ") || "n/a"}`;
+    } catch (e) {
+      console.error(`search ${m} error:`, safeErr(e));
+    }
+  }
+  return null;
+}
 async function webSearch(query) {
+  const g = await groundedSearch(query);
+  if (g) return g;
   if (TAVILY_API_KEY) {
     try {
       const r = await fetch("https://api.tavily.com/search", {
@@ -240,7 +289,7 @@ async function weather(city) {
 }
 
 // ---------- YouTube: asli data (public). YOUTUBE_API_KEY ho to API, warna public RSS ----------
-const YT_KEY = process.env.YOUTUBE_API_KEY;
+const YT_KEY = clean(process.env.YOUTUBE_API_KEY);
 async function ytText(url) {
   const r = await fetch(url, {
     headers: {
@@ -272,19 +321,22 @@ async function ytApi(endpoint, params) {
   if (!r.ok) throw new Error("YouTube API " + r.status + " " + (await r.text()).slice(0, 140));
   return r.json();
 }
-function fmtYt(d) {
+function ytStats(d) {
   const vids = d.vids || [];
   const views = vids.map((v) => v.views).filter((n) => Number.isFinite(n));
-  const avg = views.length ? Math.round(views.reduce((a, b) => a + b, 0) / views.length) : 0;
-  const dates = vids.map((v) => Date.parse(v.date)).filter((n) => n).sort((a, b) => b - a);
-  let gap = "unknown";
-  if (dates.length > 1) gap = ((dates[0] - dates[dates.length - 1]) / 86400000 / (dates.length - 1)).toFixed(1) + " days";
-  const best = vids.slice().sort((a, b) => b.views - a.views)[0];
-  const worst = vids.slice().sort((a, b) => a.views - b.views)[0];
-  let t = `Channel: ${d.name} (${d.id})\nSource: ${d.source}\nSubscribers: ${d.subs}\nTotal views: ${d.totalViews}\nVideos on channel: ${d.videoCount}\n`;
-  t += `Latest ${vids.length} videos: average views ${avg}, average gap between uploads ${gap}.\n`;
-  if (best) t += `Best: "${best.title}" (${best.views} views). Weakest: "${worst.title}" (${worst.views} views).\n`;
-  t += vids.map((v) => `- ${v.date} | ${v.views} views${v.likes != null ? ` | ${v.likes} likes` : ""}${v.dur ? ` | ${v.dur}` : ""} | ${v.title}`).join("\n");
+  const avg = views.length ? Math.round(views.reduce((x, y) => x + y, 0) / views.length) : 0;
+  const dates = vids.map((v) => Date.parse(v.date)).filter((n) => n).sort((x, y) => y - x);
+  const gapDays = dates.length > 1 ? Number(((dates[0] - dates[dates.length - 1]) / 86400000 / (dates.length - 1)).toFixed(1)) : null;
+  const sorted = vids.slice().sort((x, y) => y.views - x.views);
+  return { avg, gapDays, best: sorted[0] || null, worst: sorted[sorted.length - 1] || null };
+}
+function fmtYt(d) {
+  const st = ytStats(d);
+  const u = (v, why) => (v === null || v === undefined ? `unknown (${why})` : v);
+  let t = `Channel: ${d.name} (${d.id})\nSource: ${d.source}\nSubscribers: ${u(d.subs, "needs YouTube API key")}\nTotal views: ${u(d.totalViews, "needs YouTube API key")}\nVideos on channel: ${u(d.videoCount, "needs YouTube API key")}\n`;
+  t += `Latest ${d.vids.length} videos: average views ${st.avg}, average gap between uploads ${st.gapDays === null ? "unknown" : st.gapDays + " days"}.\n`;
+  if (st.best) t += `Best: "${st.best.title}" (${st.best.views} views). Weakest: "${st.worst.title}" (${st.worst.views} views).\n`;
+  t += d.vids.map((v) => `- ${v.date} | ${v.views} views${v.likes != null ? ` | ${v.likes} likes` : ""}${v.dur ? ` | ${v.dur}` : ""} | ${v.title}`).join("\n");
   return t;
 }
 async function ytViaApi(id) {
@@ -295,16 +347,16 @@ async function ytViaApi(id) {
   const ids = (pl.items || []).map((i) => i.contentDetails.videoId).join(",");
   const v = ids ? await ytApi("videos", { part: "snippet,statistics,contentDetails", id: ids }) : { items: [] };
   const s = ch.statistics || {};
-  return fmtYt({
+  return {
     name: ch.snippet.title, id,
-    subs: s.hiddenSubscriberCount ? "hidden by owner" : s.subscriberCount,
-    totalViews: s.viewCount, videoCount: s.videoCount,
-    source: "YouTube Data API (public numbers)",
+    subs: s.hiddenSubscriberCount ? null : Number(s.subscriberCount),
+    totalViews: Number(s.viewCount), videoCount: Number(s.videoCount),
+    source: "YouTube Data API",
     vids: (v.items || []).map((x) => ({
       title: x.snippet.title, date: String(x.snippet.publishedAt).slice(0, 10),
       views: Number(x.statistics.viewCount) || 0, likes: x.statistics.likeCount, dur: x.contentDetails.duration,
     })),
-  });
+  };
 }
 async function ytViaRss(id) {
   const xml = await ytText("https://www.youtube.com/feeds/videos.xml?channel_id=" + id);
@@ -314,15 +366,28 @@ async function ytViaRss(id) {
     date: ((e.match(/<published>([^<]*)</) || [])[1] || "").slice(0, 10),
     views: Number((e.match(/<media:statistics views="(\d+)"/) || [])[1] || 0),
   }));
-  return fmtYt({
-    name: decodeXml(name), id, subs: "unknown (needs YouTube API key)", totalViews: "unknown", videoCount: "unknown",
-    source: "public RSS feed (titles, dates and views only)", vids,
-  });
+  return { name: decodeXml(name), id, subs: null, totalViews: null, videoCount: null, source: "public RSS (titles, dates, views)", vids };
+}
+const ytCache = new Map();
+async function ytCached(target) {
+  const hit = ytCache.get(target);
+  if (hit && Date.now() - hit.t < 300000) return hit.d;
+  const id = await ytChannelId(target);
+  let d = null;
+  if (YT_KEY) {
+    try { d = await ytViaApi(id); } catch (e) { console.error("yt api", String(e.message || e).slice(0, 160)); }
+  }
+  if (!d) d = await ytViaRss(id);
+  ytCache.set(target, { t: Date.now(), d });
+  return d;
+}
+async function savedChannels() {
+  const facts = await kvJson("star:facts", []);
+  return facts.filter((f) => f.startsWith("CHANNEL ")).map(parseChannel);
 }
 async function youtubeInfo(ref) {
   try {
-    const facts = await kvJson("star:facts", []);
-    const chans = facts.filter((f) => f.startsWith("CHANNEL ")).map(parseChannel);
+    const chans = await savedChannels();
     let target = String(ref || "").trim();
     const low = target.toLowerCase();
     let c = null;
@@ -330,16 +395,36 @@ async function youtubeInfo(ref) {
     else c = chans.find((x) => x.name.toLowerCase() === low) || chans.find((x) => x.name && (low.includes(x.name.toLowerCase()) || x.name.toLowerCase().includes(low)));
     if (c) target = c.url;
     else if (!/^https?:|^@|UC[\w-]{22}/.test(target)) return "No such channel is saved. Tell Sir to add it in the Channels screen, or to give you the link.";
-    const id = await ytChannelId(target);
-    if (YT_KEY) {
-      try { return await ytViaApi(id); } catch (e) { console.error("yt api", String(e.message || e).slice(0, 160)); }
-    }
-    return await ytViaRss(id);
+    return fmtYt(await ytCached(target));
   } catch (e) {
     console.error("youtube error", String(e.message || e).slice(0, 160));
     return "Could not fetch the channel (" + String(e.message || e).slice(0, 80) + "). Say so honestly; do not guess.";
   }
 }
+// Dashboard ke liye: saare saved channels ka asli data
+app.get("/channel-stats", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({});
+  const chans = (await savedChannels()).slice(0, 4);
+  const out = await Promise.all(chans.map(async (c) => {
+    try {
+      const d = await ytCached(c.url);
+      return { kind: c.kind, name: c.name, url: c.url, data: { ...d, stats: ytStats(d) } };
+    } catch (e) {
+      return { kind: c.kind, name: c.name, url: c.url, error: String(e.message || e).slice(0, 100) };
+    }
+  }));
+  res.json({ api: !!YT_KEY, channels: out });
+});
+// Dashboard ke liye: kya kya jura hua hai
+app.get("/status", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({});
+  const out = { brain: !!LLM_API_KEY, keyLength: LLM_API_KEY.length, base: BASE, model: MODEL, memory: !!(KV_URL && KV_TOKEN), youtubeApi: !!YT_KEY, voices: Object.keys(VOICES), password: !!APP_TOKEN };
+  if (req.query.test) {
+    try { const o = await llmOne(MODEL, [{ role: "user", content: 'Reply with this JSON only: {"reply":"ok","intent":"none","slots":{}}' }]); out.test = "ok: " + String(o.reply || "").slice(0, 40); }
+    catch (e) { out.test = "FAIL: " + safeErr(e); }
+  }
+  res.json(out);
+});
 
 // ---------- Website ----------
 app.get("/", (_req, res) => {
@@ -373,7 +458,7 @@ app.post("/chat", async (req, res) => {
       : userText;
     const sys =
       SYSTEM + (await memoryContext()) +
-      (context ? `\nDevice context: ${String(context).slice(0, 1000)}` : "");
+      (context ? `\nDevice context: ${String(context).slice(0, 2500)}` : "");
     const msgs = [
       { role: "system", content: sys },
       ...history.slice(-12).map((h) => ({
@@ -388,7 +473,9 @@ app.post("/chat", async (req, res) => {
     if (out.intent === "search" && out.slots && out.slots.query) {
       extra = `Search results:\n${await webSearch(out.slots.query)}`;
     } else if (out.intent === "trending") {
-      extra = `Trending data:\n${await trendingInfo((out.slots && out.slots.topic) || "")}\nTell Sir the 2-3 most useful items for his channels. Be honest this comes from Google Trends and news only.`;
+      const tp = (out.slots && out.slots.topic) || "";
+      const money = /paise|earn|money|kamai|income|monet|cpm|rpm|niche/i.test(tp + " " + message) ? "\n\nLive search on what earns money right now:\n" + ((await groundedSearch("Which YouTube and Shorts niches and trends are earning the most money right now for small creators in Pakistan and South Asia? Give concrete examples with dates.")) || "(unavailable)") : "";
+      extra = `Trending data:\n${await trendingInfo(tp)}${money}\nTell Sir the 2-3 most useful items for his channels. Be honest this comes from Google Trends and news only.`;
     } else if (out.intent === "youtube") {
       extra = `YouTube data:\n${await youtubeInfo((out.slots && out.slots.channel) || "mine")}\nUsing ONLY this data, tell Sir in 2-3 short sentences what is useful: what works, what is weak, one clear next step. Do not invent any number that is not written above. If something says unknown, say it needs the YouTube API key or Google login. Use intent "none".`;
     } else if (out.intent === "weather" && out.slots && out.slots.city) {
@@ -398,7 +485,7 @@ app.post("/chat", async (req, res) => {
       out = await llm([
         ...msgs,
         { role: "assistant", content: JSON.stringify(out) },
-        { role: "system", content: `${extra}\nNow answer Sir briefly using this. Use intent "none" (or "copy"/"remember" if needed). Return JSON.` },
+        { role: "user", content: `[SYSTEM DATA FOR YOU, not from Sir]\n${extra}\nNow answer Sir briefly using this. Use intent "none" (or "copy"/"remember" if needed). Return JSON.` },
       ]);
     }
     if (out.intent === "remember" && out.slots && out.slots.text) await addFact(out.slots.text);
@@ -406,7 +493,7 @@ app.post("/chat", async (req, res) => {
     res.json({ reply: out.reply ?? "", intent: out.intent ?? "none", slots: out.slots ?? {} });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ reply: "Maaf kijiye Sir, abhi jawab nahi mil raha.", intent: "none", slots: {} });
+    res.status(500).json({ reply: "Maaf kijiye Sir, abhi jawab nahi mil raha.", detail: safeErr(e), intent: "none", slots: {} });
   }
 });
 

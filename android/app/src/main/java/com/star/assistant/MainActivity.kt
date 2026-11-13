@@ -5,7 +5,12 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.media.AudioManager
+import android.os.Build
+import android.provider.Settings
+import org.json.JSONArray
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -104,6 +109,40 @@ class MainActivity : Activity() {
             }
         }
 
+        // Dabake rakhne par hi sunna (background nahi sunta); chhodne par finish()
+        @JavascriptInterface
+        fun listenHold(lang: String) {
+            runOnUiThread { startListening(lang, true) }
+        }
+
+        @JavascriptInterface
+        fun finish() {
+            runOnUiThread { recognizer?.stopListening() }
+        }
+
+        // Phone mein jo apps hain unke naam (JSON list)
+        @JavascriptInterface
+        fun apps(): String {
+            return try {
+                val pm = packageManager
+                val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                val names = pm.queryIntentActivities(i, 0)
+                    .map { it.loadLabel(pm).toString() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .sorted()
+                JSONArray(names).toString()
+            } catch (e: Exception) {
+                "[]"
+            }
+        }
+
+        // Sirf tab chalta hai jab Sir ne "haan" kaha. Natija JS ko onStarDevice(ok, msg) se milta hai.
+        @JavascriptInterface
+        fun device(action: String, target: String) {
+            runOnUiThread { runDevice(action, target) }
+        }
+
         // LIVE chalu hone par screen on rakho, warna Android mic band kar deta hai
         @JavascriptInterface
         fun keepAwake(on: Boolean) {
@@ -139,7 +178,7 @@ class MainActivity : Activity() {
         savedVol = -1
     }
 
-    private fun startListening(lang: String) {
+    private fun startListening(lang: String, hold: Boolean = false) {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             pendingLang = lang
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
@@ -184,9 +223,114 @@ class MainActivity : Activity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            if (hold) {
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 20000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 20000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 20000L)
+            }
         }
         muteBeep()
         r.startListening(i)
+    }
+
+    private fun deviceResult(ok: Boolean, msg: String) {
+        js("window.onStarDevice && window.onStarDevice(" + ok + "," + JSONObject.quote(msg) + ")")
+    }
+
+    private fun norm(t: String) = t.lowercase().replace(Regex("[^a-z0-9\\u0600-\\u06ff ]"), " ").replace(Regex("\\s+"), " ").trim()
+
+    private fun runDevice(action: String, target: String) {
+        try {
+            when (action) {
+                "open_app" -> openApp(target)
+                "open_settings" -> openSettingsPage(target)
+                "volume" -> changeVolume(target)
+                "flashlight" -> flashlight(target)
+                else -> deviceResult(false, "Ye kaam abhi mujhe aata nahi.")
+            }
+        } catch (e: Exception) {
+            deviceResult(false, "Ye nahi ho saka: " + (e.message ?: "koi masla"))
+        }
+    }
+
+    private fun openApp(name: String) {
+        val pm = packageManager
+        val q = norm(name)
+        if (q.isEmpty()) { deviceResult(false, "App ka naam samajh nahi aaya."); return }
+        val list = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+        var best: String? = null
+        var bestScore = 0
+        for (ri in list) {
+            val label = norm(ri.loadLabel(pm).toString())
+            val score = when {
+                label == q -> 4
+                label.startsWith(q) -> 3
+                label.contains(q) -> 2
+                q.contains(label) && label.length >= 3 -> 1
+                else -> 0
+            }
+            if (score > bestScore) { bestScore = score; best = ri.activityInfo.packageName }
+        }
+        val pkg = best
+        val launch = if (pkg != null) pm.getLaunchIntentForPackage(pkg) else null
+        if (launch == null) {
+            deviceResult(false, "Sir, \"" + name + "\" naam ki app nahi mili.")
+        } else {
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launch)
+            deviceResult(true, name + " khul gayi.")
+        }
+    }
+
+    private fun openSettingsPage(target: String) {
+        val t = target.lowercase()
+        val action: String = when {
+            (t == "wifi" || t == "internet" || t == "data") && Build.VERSION.SDK_INT >= 29 -> Settings.Panel.ACTION_INTERNET_CONNECTIVITY
+            t == "wifi" || t == "internet" -> Settings.ACTION_WIFI_SETTINGS
+            t == "bluetooth" -> Settings.ACTION_BLUETOOTH_SETTINGS
+            t == "display" -> Settings.ACTION_DISPLAY_SETTINGS
+            t == "sound" -> Settings.ACTION_SOUND_SETTINGS
+            t == "battery" -> Settings.ACTION_BATTERY_SAVER_SETTINGS
+            t == "apps" -> Settings.ACTION_APPLICATION_SETTINGS
+            t == "location" -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
+            t == "accessibility" -> Settings.ACTION_ACCESSIBILITY_SETTINGS
+            t == "airplane" -> Settings.ACTION_AIRPLANE_MODE_SETTINGS
+            t == "storage" -> Settings.ACTION_INTERNAL_STORAGE_SETTINGS
+            t == "security" -> Settings.ACTION_SECURITY_SETTINGS
+            else -> Settings.ACTION_SETTINGS
+        }
+        val i = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(i)
+        deviceResult(true, "Settings khol di. Wahan se aap khud on/off kar sakte hain.")
+    }
+
+    private fun changeVolume(how: String) {
+        val am = getSystemService(AUDIO_SERVICE) as AudioManager
+        unmuteBeep()
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val cur = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val step = Math.max(1, max / 5)
+        val target = when (how.lowercase()) {
+            "up" -> Math.min(max, cur + step)
+            "down" -> Math.max(0, cur - step)
+            "max" -> max
+            "mute" -> 0
+            else -> -1
+        }
+        if (target < 0) { deviceResult(false, "Awaaz ka tareeqa samajh nahi aaya."); return }
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, target, AudioManager.FLAG_SHOW_UI)
+        deviceResult(true, "Awaaz " + target + "/" + max + " kar di.")
+    }
+
+    private fun flashlight(state: String) {
+        val on = state.lowercase() == "on"
+        val cm = getSystemService(CAMERA_SERVICE) as CameraManager
+        val id = cm.cameraIdList.firstOrNull {
+            cm.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        }
+        if (id == null) { deviceResult(false, "Is phone mein torch nahi mili."); return }
+        cm.setTorchMode(id, on)
+        deviceResult(true, if (on) "Torch on kar di." else "Torch band kar di.")
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
