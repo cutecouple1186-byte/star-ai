@@ -559,9 +559,18 @@ app.post("/image", async (req, res) => {
 
 // ---------- Awaaz: Star ki gehri Jarvis jaisi awaaz (Gemini TTS) ----------
 const TTS_MODELS = [process.env.TTS_MODEL || "gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"].filter((m, i, a) => a.indexOf(m) === i);
+const mk = (voice, style) => ({ voice, style });
 const VOICES = {
-  jarvis: { voice: process.env.TTS_VOICE || "Orus", style: "calm, deep, confident male voice like a refined British AI butler (Jarvis), measured pace, precise, respectful" },
-  natural: { voice: process.env.TTS_VOICE_NATURAL || "Charon", style: "natural, friendly young man talking on a phone call, relaxed, clear Urdu and English" },
+  jarvis: mk(process.env.TTS_VOICE || "Orus", "calm, deep, confident male voice like a refined British AI butler, measured pace, precise, respectful"),
+  natural: mk(process.env.TTS_VOICE_NATURAL || "Charon", "natural, friendly young man talking on a phone call, relaxed, clear Urdu and English"),
+  v3: mk("Fenrir", "excited, energetic young man, friendly, quick, like a confident YouTuber"),
+  v4: mk("Puck", "upbeat, playful, light young male voice, warm and cheerful"),
+  v5: mk("Algenib", "gravelly, mature, deep male voice, calm and wise"),
+  v6: mk("Alnilam", "firm, clear, professional male news anchor voice"),
+  v7: mk("Achird", "friendly, soft-spoken, approachable male voice like a close friend"),
+  v8: mk("Iapetus", "clear, smooth, relaxed male voice, steady pace"),
+  v9: mk("Sadaltager", "knowledgeable, thoughtful, warm male teacher voice"),
+  v10: mk("Rasalgethi", "informative, calm, deep storyteller male voice"),
 };
 function pcmToWav(pcm, rate) {
   const h = Buffer.alloc(44);

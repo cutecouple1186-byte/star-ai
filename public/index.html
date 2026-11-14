@@ -141,13 +141,13 @@ label{display:block;font-size:13px;color:var(--dim);margin:12px 0 6px}
       <svg viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-label="Tony Stark">
         <defs>
           <radialGradient id="aura" cx="50%" cy="45%" r="60%"><stop offset="0" stop-color="#143a72"/><stop offset="1" stop-color="#050913"/></radialGradient>
-          <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2b896"/><stop offset="1" stop-color="#b88462"/></linearGradient>
-          <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a2440"/><stop offset="1" stop-color="#090d1b"/></linearGradient>
+          <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1"><stop class="sk1" offset="0" stop-color="#e2b896"/><stop class="sk2" offset="1" stop-color="#b88462"/></linearGradient>
+          <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1"><stop class="hr1" offset="0" stop-color="#1a2440"/><stop class="hr2" offset="1" stop-color="#090d1b"/></linearGradient>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
         </defs>
         <rect width="220" height="220" fill="url(#aura)"/>
         <!-- jacket -->
-        <path d="M6 222 C10 188 52 172 110 172 C168 172 210 188 214 222 Z" fill="#0b1a3a" stroke="#27d3ff" stroke-width="1.2" opacity=".95"/>
+        <path id="jk" d="M6 222 C10 188 52 172 110 172 C168 172 210 188 214 222 Z" fill="#0b1a3a" stroke="#27d3ff" stroke-width="1.2" opacity=".95"/>
         <path d="M86 174 L110 204 L134 174 Z" fill="#06102a" stroke="#27d3ff" stroke-width="1"/>
         <polygon points="162,192 165,199 172,199 166.5,203.5 168.5,210.5 162,206.5 155.5,210.5 157.5,203.5 152,199 159,199" fill="#27d3ff" filter="url(#glow)"/>
         <!-- neck -->
@@ -214,10 +214,18 @@ label{display:block;font-size:13px;color:var(--dim);margin:12px 0 6px}
     <option value="pa-IN">Punjabi</option>
     <option value="en-US">English</option>
   </select>
-  <label>Tony ki awaaz</label>
+  <label>Tony ki awaaz (ya bolein: "awaaz badlo")</label>
   <select id="voice">
-    <option value="jarvis">JARVIS (gehri, calm)</option>
-    <option value="natural">Natural (insaani, dostana)</option>
+    <option value="jarvis">1. JARVIS (gehri, calm)</option>
+    <option value="natural">2. Natural (insaani, dostana)</option>
+    <option value="v3">3. Josheeli (YouTuber)</option>
+    <option value="v4">4. Hasmukh, halki</option>
+    <option value="v5">5. Gehri, samajhdaar</option>
+    <option value="v6">6. News anchor</option>
+    <option value="v7">7. Dost jaisi naram</option>
+    <option value="v8">8. Smooth, relaxed</option>
+    <option value="v9">9. Ustaad jaisi</option>
+    <option value="v10">10. Kahani sunane wali</option>
   </select>
   <div class="row"><span>Tony bol kar jawab de</span><input type="checkbox" class="sw" id="speak"></div>
   <button class="btn fill" id="saveSet">Save</button>
@@ -440,6 +448,7 @@ function recordAudit(action, ok) {
 }
 async function send(text) {
   text = String(text || "").trim();
+  if (text && !busy && localCmd(text)) { stopListening(); return; }
   const frames = pending.flatMap((p) => p.frames).slice(0, 6);
   if ((!text && !frames.length) || busy) return;
   stopSpeaking(); stopListening();
@@ -736,6 +745,44 @@ $("chk").onclick = async () => {
     $("chkOut").textContent = r.status === 401 ? "Password galat/khali hai." : JSON.stringify(await r.json(), null, 1);
   } catch (e) { $("chkOut").textContent = "Server tak pahunch nahi hua: " + e.message; }
 };
+
+
+// ---------- Awaaz / character badalna ----------
+const VOICE_KEYS = ["jarvis", "natural", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"];
+const CHARS = [
+  { n: "Classic", sk: ["#e2b896", "#b88462"], hr: ["#1a2440", "#090d1b"], jk: "#0b1a3a" },
+  { n: "Gora, bhoore baal", sk: ["#f3d2b8", "#d9a98a"], hr: ["#7a5230", "#3d2814"], jk: "#14213d" },
+  { n: "Saanwla, kaale baal", sk: ["#b98462", "#855a3f"], hr: ["#0d0d12", "#000000"], jk: "#2a0f1a" },
+  { n: "Gehra rang, ghungrale", sk: ["#8a5a3c", "#5e3a25"], hr: ["#201a16", "#050403"], jk: "#0f2a22" },
+  { n: "Silver baal", sk: ["#e8c5a5", "#c49a7a"], hr: ["#d9dee8", "#8f98aa"], jk: "#1c1c2e" },
+];
+function applyChar(i) {
+  const c = CHARS[i % CHARS.length];
+  const set = (sel, col) => document.querySelectorAll(sel).forEach((e) => e.setAttribute("stop-color", col));
+  set(".sk1", c.sk[0]); set(".sk2", c.sk[1]); set(".hr1", c.hr[0]); set(".hr2", c.hr[1]);
+  const j = $("jk"); if (j) j.setAttribute("fill", c.jk);
+}
+applyChar(S.get("char", 0));
+// true: command tha aur handle ho gaya
+function localCmd(t) {
+  const n = norm(t);
+  if (/(awaaz|avaz|voice|aawaz)/.test(n) && /(badlo|badal|change|dusri|doosri|naya|nayi|alag)/.test(n)) {
+    const cur = VOICE_KEYS.indexOf(S.get("voice", "jarvis"));
+    const nx = VOICE_KEYS[(cur + 1) % VOICE_KEYS.length];
+    S.set("voice", nx);
+    const m = "Ji Sir, awaaz number " + (VOICE_KEYS.indexOf(nx) + 1) + " kar di. Pasand na aaye to dobara kahein.";
+    addMsg("me", t); addMsg("star", m); say(m).then(() => { if (live) scheduleListen(500); });
+    return true;
+  }
+  if (/(character|chehra|shakal|avatar|look)/.test(n) && /(badlo|badal|change|dusra|doosra|naya|alag)/.test(n)) {
+    const nx = (S.get("char", 0) + 1) % CHARS.length;
+    S.set("char", nx); applyChar(nx);
+    const m = "Ji Sir, naya character: " + CHARS[nx].n + ".";
+    addMsg("me", t); addMsg("star", m); say(m).then(() => { if (live) scheduleListen(500); });
+    return true;
+  }
+  return false;
+}
 
 // ---------- Events ----------
 $("f").onsubmit = (e) => { e.preventDefault(); const v = $("t").value; $("t").value = ""; send(v); };
