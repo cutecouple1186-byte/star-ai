@@ -131,8 +131,9 @@ function parseJson(text) {
   return { reply: raw.slice(0, 600), intent: "none", slots: {} };
 }
 async function llmOne(m, messages) {
-  const call = async (json) => {
-    const body = { model: m, messages, temperature: 0.6 };
+  const call = async (json, fast) => {
+    const body = { model: m, messages, temperature: 0.6, max_tokens: 700 };
+    if (fast) body.reasoning_effort = "low"; // kam sochna = tez jawab
     if (json) body.response_format = { type: "json_object" };
     return fetch(`${BASE}/chat/completions`, {
       method: "POST",
@@ -141,8 +142,9 @@ async function llmOne(m, messages) {
       signal: AbortSignal.timeout(25000),
     });
   };
-  let r = await call(true);
-  if (r.status === 400) r = await call(false); // kuch models json_object nahi maante
+  let r = await call(true, true);
+  if (r.status === 400) r = await call(true, false);
+  if (r.status === 400) r = await call(false, false); // kuch models json_object nahi maante
   if (!r.ok) {
     const err = new Error(`LLM error ${r.status} (model ${m}): ${(await r.text()).slice(0, 300)}`);
     err.status = r.status;
@@ -174,7 +176,7 @@ async function llm(messages) {
           else if (failed >= models.length) finish(reject, lastErr);
         }
       );
-      if (started < models.length) timers.push(setTimeout(startNext, 2500));
+      if (started < models.length) timers.push(setTimeout(startNext, 1300));
     };
     startNext();
   });

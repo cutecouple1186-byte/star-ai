@@ -331,7 +331,7 @@ function say(text) {
     stopListening();
     speaking = true; lastReply = text;
     state("speaking", "");
-    let finished = false;
+    let finished = false, played = false;
     const done = () => {
       if (finished) return;
       finished = true; speaking = false; curDone = null; lastSpeechEnd = Date.now();
@@ -339,15 +339,29 @@ function say(text) {
     };
     curDone = done;
     try {
-      const r = await fetch("/tts", { method: "POST", headers: hdrs(), body: JSON.stringify({ text, profile: S.get("voice", "jarvis") }) });
-      if (!r.ok) throw new Error("tts " + r.status);
-      const url = URL.createObjectURL(await r.blob());
-      if (curAudio) curAudio.pause();
-      const a = new Audio(url); curAudio = a;
-      a.onended = done; a.onerror = done;
-      await a.play();
-      startMouth();
+      // jumle alag karke ek saath mangwate hain: pehla tukda jaldi bajta hai
+      const parts = String(text).match(/[^.!?۔\n]+[.!?۔]*/g) || [text];
+      const chunks = [];
+      let cur = "";
+      parts.forEach((p) => { cur += p; if (cur.length >= 45 || chunks.length) { chunks.push(cur.trim()); cur = ""; } });
+      if (cur.trim()) chunks.push(cur.trim());
+      const rest = chunks.slice(1).join(" ");
+      const list = [chunks[0], rest].filter(Boolean);
+      const reqs = list.map((tx) => fetch("/tts", { method: "POST", headers: hdrs(), body: JSON.stringify({ text: tx, profile: S.get("voice", "jarvis") }) }).then(async (r) => { if (!r.ok) throw new Error("tts " + r.status); return URL.createObjectURL(await r.blob()); }));
+      const first = await reqs[0];
+      const playUrl = (url, next) => new Promise((ok, bad) => {
+        if (curAudio) curAudio.pause();
+        const a = new Audio(url); curAudio = a;
+        a.onended = ok; a.onerror = () => bad(new Error("audio"));
+        a.play().then(() => startMouth(), bad);
+      });
+      played = true;
+      await playUrl(first);
+      if (finished) return;
+      if (reqs[1]) { const u2 = await reqs[1]; if (!finished) await playUrl(u2); }
+      done();
     } catch (e) {
+      if (played) { done(); return; }
       try {
         const u = new SpeechSynthesisUtterance(text);
         u.lang = "hi-IN"; u.pitch = 0.7; u.rate = 0.95; u.onend = done; u.onerror = done;
